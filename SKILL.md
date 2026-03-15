@@ -24,7 +24,7 @@ Look for a top-level `package.json` (not inside `node_modules`) that lists `@mys
 
 A TypeScript project is a dAppKit project if any of these are true:
 - `package.json` lists `@mysten/dapp-kit`, `@mysten/dapp-kit-react`, or `@mysten/dapp-kit-core` as a dependency
-- The project contains `main.tsx` and `vite.config.ts`
+- The project contains `main.tsx` and `vite.config`(with js or ts-like extensions) files
 
 A dAppKit project will always also have `@mysten/sui`. Apply both SDK and dAppKit guides.
 
