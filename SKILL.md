@@ -34,7 +34,7 @@ A workspace can contain both Move and TypeScript. A monorepo might have Move pac
 
 ## Reference Guides
 
-### Move (when a `Move.toml` + `sources/` folder is detected)
+### For a Move project
 
 | Guide | When to read |
 |-------|-------------|
@@ -43,7 +43,7 @@ A workspace can contain both Move and TypeScript. A monorepo might have Move pac
 | [move-audit-logic.md](move-audit-logic.md) | Reviewing access control, data handling, and protocol limits |
 | [move-tests.md](move-tests.md) | Writing or running Move tests |
 
-### TypeScript SDK (when `@mysten/sui` is detected in the `package.json`)
+### For a TypeScript SDK project
 
 | Guide | When to read |
 |-------|-------------|
@@ -51,7 +51,7 @@ A workspace can contain both Move and TypeScript. A monorepo might have Move pac
 | [sdk-reads.md](sdk-reads.md) | Reviewing SDK read patterns (batching, object references) |
 | [sdk-transactions.md](sdk-transactions.md) | Reviewing SDK transaction patterns (gas budget, PTB merging) |
 
-### React dAppKit (when `@mysten/dapp-kit` or `@mysten/dapp-kit-react` is detected in the `package.json`)
+### For a React dAppKit project
 
 | Guide | When to read |
 |-------|-------------|
