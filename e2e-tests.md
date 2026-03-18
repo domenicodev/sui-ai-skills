@@ -29,16 +29,40 @@ project/
 
 Each Move test file (`pool_tests.move`) should have a corresponding TypeScript test file (`pool.test.ts`). A `.utils.ts` file is only needed when the test file duplicates many behaviors (shared transaction builders, assertion helpers, object lookups). If the tests are straightforward, keep everything in the test file itself.
 
+## Package Manager Detection
+
+Before running any install or script command, detect the project's package manager by checking for lock files in the project root. If multiple lock files exist, use the highest-priority match:
+
+| Priority | Lock file | Package manager |
+|----------|-----------|-----------------|
+| 1 (highest) | `bun.lock` or `bun.lockb` | `bun` |
+| 2 | `yarn.lock` | `yarn` |
+| 3 | `package-lock.json` | `npm` |
+
+If no lock file is found, default to `npm`.
+
+Use the detected package manager for **all** install and run commands throughout the project (e.g. `bun add`, `yarn add`, `npm install`; `bun test`, `yarn test`, `npm test`).
+
 ## Dependencies
 
 ```bash
-npm install -D vitest @mysten/sui dotenv
+<pm> install -D vitest @mysten/sui
 ```
 
-`dotenv` is **required**. `zod` is optional but recommended for env validation:
+> Replace `<pm> install` with the correct command for the detected package manager: `npm install`, `yarn add`, or `bun add`.
+
+If the project is **not** using vitest (e.g. jest, mocha), also install `dotenv`:
 
 ```bash
-npm install -D zod
+<pm> install -D dotenv
+```
+
+If the project **is** using vitest, do not install `dotenv` — but if it is already present as a dependency, leave it and use it normally.
+
+`zod` is optional but recommended for env validation:
+
+```bash
+<pm> install -D zod
 ```
 
 Add test scripts to `package.json`:
@@ -71,16 +95,28 @@ ADMIN_CAP_ID=0x...
 
 ### Loading and asserting env vars
 
-Every test file must call `dotenv.config()` inside `beforeAll`. After loading, **assert that all required env vars are present** — never assume they exist.
+**Vitest** automatically loads `.env` files before tests run, so `dotenv.config()` is unnecessary. If `dotenv` is already installed in the project, it is fine to keep and use it — just don't force-install it for vitest projects.
+
+**Other test runners** (jest, mocha, etc.) do not auto-load `.env`. In that case, install `dotenv` and call `dotenv.config()` inside `beforeAll` before accessing any env var.
+
+After env vars are loaded, **assert that all required vars are present** — never assume they exist.
 
 Prefer `zod` + `TestUtils` when there is much to test (many operations, shared state, repeated transaction patterns). For simple test files with a handful of self-contained checks, manual assertions without a utils class are fine.
 
-- **Simple** (few tests, no shared state): call `dotenv.config()` and assert env vars directly in `beforeAll`.
-- **Complex** (many tests, shared setup): call `dotenv.config()` in `beforeAll`, then instantiate `TestUtils` — the constructor validates env vars with `zod`.
+- **Simple** (few tests, no shared state): assert env vars directly in `beforeAll`.
+- **Complex** (many tests, shared setup): instantiate `TestUtils` in `beforeAll` — the constructor validates env vars with `zod`.
 
 **Manual assertion** (simple tests):
 
 ```typescript
+// With vitest — no dotenv.config() needed:
+beforeAll(() => {
+  if (!process.env.NETWORK) throw new Error('NETWORK is not set in .env');
+  if (!process.env.USER_SECRET_KEY) throw new Error('USER_SECRET_KEY is not set in .env');
+  if (!process.env.PACKAGE_ID) throw new Error('PACKAGE_ID is not set in .env');
+});
+
+// Without vitest — call dotenv.config() first:
 beforeAll(() => {
   dotenv.config();
   if (!process.env.NETWORK) throw new Error('NETWORK is not set in .env');
@@ -100,6 +136,12 @@ const envSchema = z.object({
   PACKAGE_ID: z.string().startsWith('0x'),
 });
 
+// With vitest:
+beforeAll(() => {
+  envSchema.parse(process.env);
+});
+
+// Without vitest:
 beforeAll(() => {
   dotenv.config();
   envSchema.parse(process.env);
@@ -108,7 +150,7 @@ beforeAll(() => {
 
 ### Shared helpers
 
-These helpers read from `process.env` directly, so they only work after `dotenv.config()` has been called.
+These helpers read from `process.env` directly. With vitest, `.env` is loaded automatically before any test code runs. With other runners, ensure `dotenv.config()` has been called in `beforeAll` before these helpers are invoked.
 
 `src/helpers/suiClient.ts`:
 
@@ -136,12 +178,10 @@ export function getSigner(): Ed25519Keypair {
 Not every test needs a utils class. If you are testing a single read or a self-contained operation, keep everything in the test file.
 
 ```typescript
-import dotenv from 'dotenv';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { suiClient } from '../src/helpers/suiClient';
 
 beforeAll(() => {
-  dotenv.config();
   if (!process.env.POOL_ID) throw new Error('POOL_ID is not set in .env');
 });
 
@@ -158,7 +198,7 @@ describe('pool reads', () => {
 
 ## TestUtils Pattern
 
-When a test file covers a module with many related operations, create a `TestUtils` class that mirrors the `#[test_only]` helpers in Move. The constructor asserts env vars and initializes the signer — do not read env vars at module scope (top-level `const`), since `dotenv.config()` has not run yet at import time.
+When a test file covers a module with many related operations, create a `TestUtils` class that mirrors the `#[test_only]` helpers in Move. The constructor asserts env vars and initializes the signer.
 
 `tests/pool.utils.ts`:
 
@@ -203,7 +243,6 @@ export class TestUtils {
 `tests/pool.test.ts`:
 
 ```typescript
-import dotenv from 'dotenv';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { Transaction } from '@mysten/sui/transactions';
 import { TestUtils } from './pool.utils';
@@ -211,7 +250,6 @@ import { TestUtils } from './pool.utils';
 let testUtils: TestUtils;
 
 beforeAll(() => {
-  dotenv.config();
   testUtils = new TestUtils();
 });
 
@@ -351,20 +389,24 @@ it('emits a PoolCreated event', async () => {
 
 ## Running Tests
 
+Use the detected package manager (see **Package Manager Detection** above) for all commands.
+
 Run all tests:
 
 ```bash
-npm test
+<pm> test
 ```
 
 Run a specific test file:
 
 ```bash
-npx vitest run tests/pool.test.ts
+<pm> vitest run tests/pool.test.ts
 ```
+
+> Replace `<pm> vitest` with the correct runner: `npx vitest`, `yarn vitest`, or `bunx vitest`.
 
 Watch mode during development:
 
 ```bash
-npm run test:watch
+<pm> run test:watch
 ```
