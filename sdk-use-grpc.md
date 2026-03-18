@@ -30,6 +30,8 @@ The gRPC client requires a `network` field instead of a raw URL.
 | Including outputs | `options: { showX: boolean }` | `include: { X: boolean }` |
 | Reading output data | `.data.data.{...}` | `.resultType` (e.g., `.objects`) |
 | Querying multiple items | `get*s` (e.g., `getCoins`, `getOwnedObjects`) | `list*s` (e.g., `listCoins`, `listOwnedObjects`) |
+| Reading object fields | `obj.data.content.fields.myField` | `obj.object.json.myField` (requires `include: { json: true }`) |
+| Getting an object | `getObject({ id })` | `getObject({ objectId })` |
 | Parsing types | `ResultType` | `SuiClientTypes.ResultType{...includes}` |
 
 ## Read Operations
@@ -50,6 +52,20 @@ const objects = await client.listOwnedObjects({
   include: { content: true },
 });
 // content is now in bcs; use "json" for the old content format (Fields)
+```
+
+### Reading Object Fields
+
+`obj.data.content.fields` no longer exists. Use `obj.object.json` instead, which flattens the fields directly onto the object. Requires `include: { json: true }`.
+
+```typescript
+// v1
+const obj = await client.getObject({ id, options: { showContent: true } });
+const value = obj.data.content.fields.myField;
+
+// v2
+const obj = await client.getObject({ objectId: id, include: { json: true } });
+const value = obj.object.json.myField;
 ```
 
 ### Objects (single or multiple)
@@ -99,11 +115,53 @@ const result = await client.signAndExecuteTransaction({
 const result = await client.signAndExecuteTransaction({
   transaction: tx,
   signer: keypair,
-  include: { effects: true, objectChanges: true },
+  include: { effects: true, objectTypes: true },
 });
+if (!result.Transaction) throw new Error('Transaction failed');
+await client.waitForTransaction({ digest: result.Transaction.digest });
 ```
 
 `options` → `include`. The rest of the API is similar but has breaking changes in response types.
+
+**Always check `result.Transaction` and call `waitForTransaction` after `signAndExecuteTransaction`.** `result.Transaction` may be undefined if the transaction failed. If it exists, the digest lives at `result.Transaction.digest`. Without `waitForTransaction`, any subsequent read (e.g. `getObject`) can return stale data or a "not found" error.
+
+### Checking Created Objects After a Transaction
+
+To verify which objects were created (or mutated) by a transaction, include **both** `objectTypes` and `effects`:
+
+```typescript
+const result = await client.signAndExecuteTransaction({
+  transaction: tx,
+  signer: keypair,
+  include: { objectTypes: true, effects: true },
+});
+if (!result.Transaction) throw new Error('Transaction failed');
+await client.waitForTransaction({ digest: result.Transaction.digest });
+```
+
+- `effects` — contains `changedObjects`, a map of every object touched by the transaction (created, mutated, deleted) with their owner and digest.
+- `objectTypes` — attaches the full type string (e.g. `0x…::pool::Pool`) to each changed object entry.
+
+All response data lives under `result.Transaction`. For example: `result.Transaction.effects`, `result.Transaction.objectTypes`, `result.Transaction.events`.
+
+- `objectTypes` maps `[objectId] → full type string` (e.g. `"0x…::pool::Pool"`)
+- `effects.changedObjects` maps `[objectId] → { ...metadata, idOperation: string }`
+
+`idOperation` values: `"Created"` (new object), `"None"` (mutated), `"Deleted"` (destroyed). Use these to filter by operation type.
+
+To find a specific created object by type:
+
+```typescript
+const tx = result.Transaction!;
+const changedObjects = tx.effects?.changedObjects ?? [];
+const created = changedObjects.find(
+  (obj) =>
+    obj.idOperation === 'Created' &&
+    tx.objectTypes?.[obj.objectId]?.includes('::pool::Pool'),
+);
+```
+
+Without `objectTypes: true`, the type information is not included and you cannot match objects by their Move type. Without `effects: true`, `changedObjects` is not available.
 
 ### Simulating Transactions
 
@@ -126,4 +184,4 @@ const simulation = await client.simulateTransaction({ transaction, include: { ef
 | Display | Display not yet supported in gRPC | Use graphqlRPC or fallback to jsonRPC `showDisplay` in options |
 | Jest | Not supported (SDK uses ESM) | Migrate to vitest, or configure Jest to handle ESM |
 | IDE Autocompletion | Type/argument autocompletion often broken | Explicitly import types from SDK source, or use `SuiClientTypes` |
-| Object Changes | `idOperation` has ambiguous `"None"` and `"Unknown"` values | Treat `"None"` as mutated; investigate `"Unknown"` case by case |
+| Changed Objects | `effects.changedObjects` entries have `idOperation` with ambiguous `"None"` and `"Unknown"` values | Treat `"None"` as mutated; investigate `"Unknown"` case by case |

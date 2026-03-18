@@ -12,14 +12,14 @@ Detect loops or repeated calls to `getObject` / `client.getObject` with differen
 
 ```typescript
 // BAD: N separate API calls
-const obj1 = await client.getObject({ id: id1, include: { content: true } });
-const obj2 = await client.getObject({ id: id2, include: { content: true } });
-const obj3 = await client.getObject({ id: id3, include: { content: true } });
+const obj1 = await client.getObject({ objectId: id1, include: { content: true } });
+const obj2 = await client.getObject({ objectId: id2, include: { content: true } });
+const obj3 = await client.getObject({ objectId: id3, include: { content: true } });
 
 // Also BAD: getObject inside a loop
 const results = [];
 for (const id of objectIds) {
-    const obj = await client.getObject({ id, include: { content: true } });
+    const obj = await client.getObject({ objectId: id, include: { content: true } });
     results.push(obj);
 }
 ```

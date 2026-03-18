@@ -2,6 +2,28 @@
 
 E2E tests exercise Move contracts through the TypeScript SDK on a live network. They mirror the Move unit tests 1-to-1 — same functionalities, same flow — while also covering the integration boundary: PTB composition, event parsing, client-side serialization, and cross-package interactions after publishing.
 
+## Test Structure
+
+Each test file has **one top-level `describe`** block named after the Move module or domain. Inside it, use only `it(...)` blocks — no nested `describe` blocks. Group related tests by proximity, not by wrapping them in sub-describes.
+
+```typescript
+// GOOD: one describe, flat it blocks
+describe('pool', () => {
+  it('creates a pool with zero liquidity', async () => { ... });
+  it('creates multiple pools in sequence', async () => { ... });
+  it('rejects swap on empty pool', async () => { ... });
+  it('emits a PoolCreated event', async () => { ... });
+});
+
+// BAD: multiple describes or nested describes
+describe('pool creation', () => {
+  it('creates a pool', async () => { ... });
+});
+describe('pool swap', () => {
+  it('rejects swap on empty pool', async () => { ... });
+});
+```
+
 ## File Organization
 
 E2E tests live in a `tests/` directory at the TypeScript project root, alongside `package.json`. Name test files after the Move module or domain they cover — matching the Move test file names.
@@ -29,6 +51,22 @@ project/
 
 Each Move test file (`pool_tests.move`) should have a corresponding TypeScript test file (`pool.test.ts`). A `.utils.ts` file is only needed when the test file duplicates many behaviors (shared transaction builders, assertion helpers, object lookups). If the tests are straightforward, keep everything in the test file itself.
 
+## TypeScript Project Root Detection
+
+In a combined Move + TypeScript workspace, the TypeScript code often lives in a subdirectory (e.g. `ts/`, `sdk/`, `app/`) rather than the repository root. Before running any command (`install`, `test`, etc.), detect the TypeScript project root:
+
+1. Find `package.json` files that list `@mysten/sui` as a dependency.
+2. If the matching `package.json` is **not** at the workspace root, the directory containing it is the TypeScript project root.
+3. Confirm the `.env` file is in (or expected in) that directory — `dotenv.config()` loads `.env` from the **current working directory**, not from the test file's location.
+
+**All TypeScript commands** (`install`, `test`, `vitest run`, etc.) **must be run from the directory that contains `.env`**, not the workspace root. Always `cd` there before running anything. For example, if `.env` and `package.json` are in `ts/`:
+
+```bash
+cd ts && <pm> test
+```
+
+Do **not** add workarounds like importing `loadEnv` from `vite`, setting custom `envDir` in `vitest.config.ts`, or using `dotenv.config({ path: ... })` with a custom path. These are never the correct fix. The only correct fix is to `cd` to the directory that contains `.env`.
+
 ## Package Manager Detection
 
 Before running any install or script command, detect the project's package manager by checking for lock files in the project root. If multiple lock files exist, use the highest-priority match:
@@ -46,18 +84,10 @@ Use the detected package manager for **all** install and run commands throughout
 ## Dependencies
 
 ```bash
-<pm> install -D vitest @mysten/sui
+<pm> install -D vitest @mysten/sui dotenv
 ```
 
 > Replace `<pm> install` with the correct command for the detected package manager: `npm install`, `yarn add`, or `bun add`.
-
-If the project is **not** using vitest (e.g. jest, mocha), also install `dotenv`:
-
-```bash
-<pm> install -D dotenv
-```
-
-If the project **is** using vitest, do not install `dotenv` — but if it is already present as a dependency, leave it and use it normally.
 
 `zod` is optional but recommended for env validation:
 
@@ -95,11 +125,7 @@ ADMIN_CAP_ID=0x...
 
 ### Loading and asserting env vars
 
-**Vitest** automatically loads `.env` files before tests run, so `dotenv.config()` is unnecessary. If `dotenv` is already installed in the project, it is fine to keep and use it — just don't force-install it for vitest projects.
-
-**Other test runners** (jest, mocha, etc.) do not auto-load `.env`. In that case, install `dotenv` and call `dotenv.config()` inside `beforeAll` before accessing any env var.
-
-After env vars are loaded, **assert that all required vars are present** — never assume they exist.
+**Always use `dotenv`.** Call `dotenv.config()` in `beforeAll` before accessing any env var, regardless of test runner. After loading, **assert that all required vars are present** — never assume they exist.
 
 Prefer `zod` + `TestUtils` when there is much to test (many operations, shared state, repeated transaction patterns). For simple test files with a handful of self-contained checks, manual assertions without a utils class are fine.
 
@@ -109,14 +135,8 @@ Prefer `zod` + `TestUtils` when there is much to test (many operations, shared s
 **Manual assertion** (simple tests):
 
 ```typescript
-// With vitest — no dotenv.config() needed:
-beforeAll(() => {
-  if (!process.env.NETWORK) throw new Error('NETWORK is not set in .env');
-  if (!process.env.USER_SECRET_KEY) throw new Error('USER_SECRET_KEY is not set in .env');
-  if (!process.env.PACKAGE_ID) throw new Error('PACKAGE_ID is not set in .env');
-});
+import dotenv from 'dotenv';
 
-// Without vitest — call dotenv.config() first:
 beforeAll(() => {
   dotenv.config();
   if (!process.env.NETWORK) throw new Error('NETWORK is not set in .env');
@@ -128,6 +148,7 @@ beforeAll(() => {
 **With `zod`** (preferred for complex tests):
 
 ```typescript
+import dotenv from 'dotenv';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -136,12 +157,6 @@ const envSchema = z.object({
   PACKAGE_ID: z.string().startsWith('0x'),
 });
 
-// With vitest:
-beforeAll(() => {
-  envSchema.parse(process.env);
-});
-
-// Without vitest:
 beforeAll(() => {
   dotenv.config();
   envSchema.parse(process.env);
@@ -150,16 +165,21 @@ beforeAll(() => {
 
 ### Shared helpers
 
-These helpers read from `process.env` directly. With vitest, `.env` is loaded automatically before any test code runs. With other runners, ensure `dotenv.config()` has been called in `beforeAll` before these helpers are invoked.
+These helpers read from `process.env` directly. Ensure `dotenv.config()` has been called in `beforeAll` before these helpers are invoked.
 
 `src/helpers/suiClient.ts`:
 
 ```typescript
+import dotenv from 'dotenv';
 import { SuiClient, getJsonRpcFullnodeUrl } from '@mysten/sui/client';
+
+dotenv.config();
 
 const network = process.env.NETWORK as 'testnet' | 'mainnet' | 'devnet' | 'localnet';
 export const suiClient = new SuiClient({ url: getJsonRpcFullnodeUrl(network) });
 ```
+
+**If the project already has a file that exports an initialized Sui client** (`SuiClient`, `SuiGrpcClient`, etc.) **and reads `process.env` at module scope** — regardless of file name (`suiClient.ts`, `client.ts`, `sui.ts`, etc.) — it **must** call `dotenv.config()` at the top of that file before accessing any env var. Otherwise the client will be initialized with `undefined` values because the module executes before any `beforeAll` in the test files.
 
 `src/helpers/getSigner.ts`:
 
@@ -179,19 +199,21 @@ Not every test needs a utils class. If you are testing a single read or a self-c
 
 ```typescript
 import { describe, it, expect, beforeAll } from 'vitest';
+import dotenv from 'dotenv';
 import { suiClient } from '../src/helpers/suiClient';
 
 beforeAll(() => {
+  dotenv.config();
   if (!process.env.POOL_ID) throw new Error('POOL_ID is not set in .env');
 });
 
 describe('pool reads', () => {
   it('can fetch the pool object', async () => {
     const obj = await suiClient.getObject({
-      id: process.env.POOL_ID!,
-      options: { showContent: true },
+      objectId: process.env.POOL_ID!,
+      include: { json: true },
     });
-    expect(obj.data).toBeDefined();
+    expect(obj.object).toBeDefined();
   });
 });
 ```
@@ -225,17 +247,25 @@ export class TestUtils {
   }
 
   async sendTransaction(tx: Transaction) {
-    return suiClient.signAndExecuteTransaction({
+    const result = await suiClient.signAndExecuteTransaction({
       signer: this.signer,
       transaction: tx,
-      options: { showObjectChanges: true, showEvents: true },
+      include: { objectTypes: true, effects: true },
     });
+    if (!result.Transaction) throw new Error('Transaction failed');
+    await suiClient.waitForTransaction({ digest: result.Transaction.digest });
+    return result;
   }
 
   findCreatedObject(result: any, typeSuffix: string) {
-    return result.objectChanges?.find(
-      (c: any) => c.type === 'created' && c.objectType.includes(typeSuffix),
+    const tx = result.Transaction!;
+    const changedObjects = tx.effects?.changedObjects ?? [];
+    const entry = changedObjects.find(
+      (obj: any) =>
+        obj.idOperation === 'Created' &&
+        tx.objectTypes?.[obj.objectId]?.includes(typeSuffix),
     );
+    return entry ? { objectId: entry.objectId, objectType: tx.objectTypes?.[entry.objectId] } : undefined;
   }
 }
 ```
@@ -244,12 +274,14 @@ export class TestUtils {
 
 ```typescript
 import { describe, it, expect, beforeAll } from 'vitest';
+import dotenv from 'dotenv';
 import { Transaction } from '@mysten/sui/transactions';
 import { TestUtils } from './pool.utils';
 
 let testUtils: TestUtils;
 
 beforeAll(() => {
+  dotenv.config();
   testUtils = new TestUtils();
 });
 
@@ -293,11 +325,10 @@ it('creates a pool with zero liquidity', async () => {
   expect(created).toBeDefined();
 
   const obj = await suiClient.getObject({
-    id: created!.objectId,
-    options: { showContent: true },
+    objectId: created!.objectId,
+    include: { json: true },
   });
-  const fields = obj.data!.content!.fields as Record<string, any>;
-  expect(fields.liquidity).toBe('0');
+  expect(obj.object.json.liquidity).toBe('0');
 });
 ```
 
@@ -328,16 +359,21 @@ Extract repeated setup or assertion patterns into utility functions, just as Mov
 ```typescript
 export async function getObjectFields(objectId: string): Promise<Record<string, any>> {
   const obj = await suiClient.getObject({
-    id: objectId,
-    options: { showContent: true },
+    objectId,
+    include: { json: true },
   });
-  return obj.data!.content!.fields as Record<string, any>;
+  return obj.object.json as Record<string, any>;
 }
 
 export function findCreatedObjectByType(result: any, typeSuffix: string) {
-  return result.objectChanges?.find(
-    (c: any) => c.type === 'created' && c.objectType.includes(typeSuffix),
+  const tx = result.Transaction!;
+  const changedObjects = tx.effects?.changedObjects ?? [];
+  const entry = changedObjects.find(
+    (obj: any) =>
+      obj.idOperation === 'Created' &&
+      tx.objectTypes?.[obj.objectId]?.includes(typeSuffix),
   );
+  return entry ? { objectId: entry.objectId, objectType: tx.objectTypes?.[entry.objectId] } : undefined;
 }
 ```
 
@@ -368,7 +404,7 @@ it('emits a PoolCreated event', async () => {
 
   const result = await testUtils.sendTransaction(tx);
 
-  const event = result.events?.find((e: any) => e.type.includes('::pool::PoolCreated'));
+  const event = result.Transaction!.events?.find((e: any) => e.type.includes('::pool::PoolCreated'));
   expect(event).toBeDefined();
   expect(event!.parsedJson).toMatchObject({ creator: getSigner().toSuiAddress() });
 });
@@ -380,8 +416,7 @@ it('emits a PoolCreated event', async () => {
 |---------|---------|
 | `suiClient.getObject` | Fetch object state to assert on fields |
 | `suiClient.getObjects` | Batch-fetch multiple objects |
-| `suiClient.queryEvents` | Query events by type for post-tx assertions |
-| `suiClient.signAndExecuteTransaction` | Sign and send a transaction |
+| `suiClient.signAndExecuteTransaction` | Sign and send a transaction (use `include: { objectTypes: true, effects: true }` to inspect created objects) |
 | `tx.moveCall` | Build a Move call in a PTB |
 | `tx.pure.string` / `tx.pure.address` / `tx.pure.u64` | Serialize pure arguments |
 | `bcs` (from `@mysten/sui/bcs`) | Client-side BCS encoding for derivation and serialization |
@@ -389,18 +424,24 @@ it('emits a PoolCreated event', async () => {
 
 ## Running Tests
 
+**CRITICAL: Before running any test command, `cd` into the directory that contains the `.env` file.** `dotenv.config()` loads `.env` from the current working directory. If you run tests from the wrong directory, env vars will be undefined and tests will fail. Do **not** add workarounds like `loadEnv`, `envDir`, `dotenv.config({ path: ... })` with a custom path, or any other env-loading hack. The only correct fix is to `cd` to where `.env` lives.
+
+```bash
+cd <directory-containing-.env> && <pm> test
+```
+
 Use the detected package manager (see **Package Manager Detection** above) for all commands.
 
 Run all tests:
 
 ```bash
-<pm> test
+cd <directory-containing-.env> && <pm> test
 ```
 
 Run a specific test file:
 
 ```bash
-<pm> vitest run tests/pool.test.ts
+cd <directory-containing-.env> && <pm> vitest run tests/pool.test.ts
 ```
 
 > Replace `<pm> vitest` with the correct runner: `npx vitest`, `yarn vitest`, or `bunx vitest`.
@@ -408,5 +449,7 @@ Run a specific test file:
 Watch mode during development:
 
 ```bash
-<pm> run test:watch
+cd <directory-containing-.env> && <pm> run test:watch
 ```
+
+**Always run the tests after writing or updating them.** The task is not complete until all tests pass. If a test fails, investigate the failure and fix it before moving on.

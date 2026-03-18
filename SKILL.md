@@ -82,7 +82,9 @@ Read only the guides relevant to the current task. Do not read all of them upfro
 
 ## Workflow
 
-Before writing or modifying any file, switch to **Plan mode**. For each change, list:
+**MANDATORY: Before writing or modifying any file, you MUST switch to Plan mode.** Do not skip this step. Do not start writing code while still in Agent mode. Call `SwitchMode("plan")` first, every time.
+
+In Plan mode, for each change list:
 - The file path
 - The existing code (or "new file" if creating)
 - The proposed code
@@ -90,22 +92,34 @@ Before writing or modifying any file, switch to **Plan mode**. For each change, 
 
 Wait for explicit approval before proceeding. Do not write code until the plan is approved.
 
+**This applies at every step transition** — when moving from audit to Move tests, from Move tests to e2e tests, or from one task to another. Each step requires its own Plan mode cycle: plan → approve → implement.
+
 ### Move-only project
 
-1. **Audit and analyze** — review Move code using the Move guides listed in the Reference Guides section above.
-2. **Move tests** — write or update Move unit tests following `move-tests.md`. Target good coverage.
-3. **No e2e tests** — do not create TypeScript e2e tests if the project has no TypeScript code.
+1. **Plan** — switch to Plan mode. Propose changes.
+2. **Audit and analyze** — review Move code using the Move guides listed in the Reference Guides section above.
+3. **Plan** — switch to Plan mode. Propose test changes.
+4. **Move tests** — write or update Move unit tests following `move-tests.md`. Target good coverage.
+5. **No e2e tests** — do not create TypeScript e2e tests if the project has no TypeScript code.
 
 ### TypeScript-only project
 
-1. **SDK code** — follow the SDK guides listed in the Reference Guides section above.
-2. **No Move tests** — do not write Move unit tests if the project has no Move code.
+1. **Plan** — switch to Plan mode. Propose changes.
+2. **SDK code** — follow the SDK guides listed in the Reference Guides section above.
+3. **No Move tests** — do not write Move unit tests if the project has no Move code.
 
 ### Move + TypeScript project
 
-1. **Audit and analyze** — review Move code using the Move guides listed in the Reference Guides section above.
-2. **Move tests** — write or update Move unit tests following `move-tests.md`. Target good coverage. Complete this step before moving on.
-3. **E2E tests** — once Move tests are ready, create or update TypeScript e2e tests following `e2e-tests.md`.
+1. **Plan** — switch to Plan mode. Propose Move changes.
+2. **Audit and analyze** — review Move code using the Move guides listed in the Reference Guides section above.
+3. **Plan** — switch to Plan mode. Propose Move test changes.
+4. **Move tests** — write or update Move unit tests following `move-tests.md`. **Run them and check coverage before proceeding:**
+   1. Run `sui move test --trace --coverage` from the Move project root.
+   2. Run `sui move coverage summary` and review per-module percentages.
+   3. If any module is below 80 %, inspect uncovered lines with `sui move coverage source --module <NAME>` and add tests until coverage meets the target.
+   4. Only move to the next step once all Move tests pass and coverage is satisfactory.
+5. **Plan** — switch to Plan mode **again**. Propose e2e test changes. Do NOT skip this.
+6. **E2E tests** — once the plan is approved, create or update TypeScript e2e tests following `e2e-tests.md`. **Run the tests** after writing them — do not consider the step done until all tests pass.
 
 **Test sync rule**: Move unit tests and TypeScript e2e tests must stay in sync:
 - When a Move test is **added**, create a matching e2e test.
