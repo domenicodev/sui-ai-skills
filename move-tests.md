@@ -18,6 +18,10 @@ my_package/
 
 Inside `sources/`, only include `#[test_only]` helper functions (like `init_for_testing`). Actual test functions go in `tests/`.
 
+## Only Test Public Functions
+
+Tests should only call `public` and `entry` functions — the same entry points available to external callers. **Never call `public(package)` or private (`fun` without `public`) functions directly from tests.** These are internal to the package and not part of the external API; testing them directly couples tests to implementation details and bypasses the intended access boundaries. If a behavior is only reachable through an internal function, test it indirectly through the `public` or `entry` function that calls it.
+
 ## Avoid test_scenario When Not Needed
 
 `test_scenario` simulates multi-transaction, multi-sender flows. It adds boilerplate and overhead. **Only use it when you actually need multiple transactions or senders.**
