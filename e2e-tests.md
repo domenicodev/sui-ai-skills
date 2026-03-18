@@ -265,6 +265,22 @@ it('creates a pool with zero liquidity', async () => {
 
 Both test the same logic. The Move test uses `tx_context::dummy()` + `destroy`. The TypeScript test uses the SDK + real transactions.
 
+### Handling transferred or destroyed objects
+
+In Move unit tests, objects are often cleaned up with `transfer::public_transfer(obj, @sender)` or `std::unit_test::destroy(obj)`. On a real network, every object produced by a PTB that doesn't have a `drop` ability must have a destination — objects left dangling cause the transaction to fail. When the Move function **returns** an object (instead of transferring it internally), the TypeScript PTB must transfer it explicitly:
+
+```typescript
+const tx = new Transaction();
+const pool = tx.moveCall({
+  target: `${process.env.PACKAGE_ID}::pool::new`,
+});
+tx.transferObjects([pool], getSigner().toSuiAddress());
+
+const result = await testUtils.sendTransaction(tx);
+```
+
+Use `getSigner().toSuiAddress()` to obtain the current wallet address as the transfer recipient. This applies to any `moveCall` whose Move function returns one or more objects — wrap them with `tx.transferObjects` so the transaction succeeds.
+
 **Keep them in sync**: whenever a Move test is added or changed, update the corresponding e2e test to match. If a corresponding e2e test does not exist yet, create it.
 
 ## Helper Functions
